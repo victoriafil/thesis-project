@@ -75,7 +75,6 @@ TRANSFORMERS_CACHE = os.getenv("TRANSFORMERS_CACHE", PYTORCH_TRANSFORMERS_CACHE)
 WEIGHTS_NAME = "pytorch_model.bin"
 CONFIG_NAME = "config.yaml"
 
-
 def load_labels(objs=OBJECTS, attrs=ATTRIBUTES):
     vg_classes = []
     with open(objs) as f:
@@ -536,7 +535,7 @@ def load_frcnn_pkl_from_url(url):
 def get_demo_path():
     print(f"{os.path.abspath(os.path.join(PATH, os.pardir))}/demo.ipynb")
 
-
+# changed function by removing line: img = img[:, :, ::-1] as it reversed the color channels and gave the images a blueish tint
 def img_tensorize(im, input_format="RGB"):
     assert isinstance(im, str)
     if os.path.isfile(im):
@@ -544,11 +543,53 @@ def img_tensorize(im, input_format="RGB"):
     else:
         img = get_image_from_url(im)
         assert img is not None, f"could not connect to: {im}"
-    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
     if input_format == "RGB":
-        img = img[:, :, ::-1]
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
     return img
 
 
 def chunk(images, batch=1):
     return (images[i : i + batch] for i in range(0, len(images), batch))
+
+
+
+## additional libraries:
+
+from scipy.stats import ttest_rel
+from torch.distributions import Categorical
+
+## functions from this line and below have been written and added for the specific purposes of this thesis
+
+def compute_entropy(atts):
+    entropies = {}
+    for i, layer in enumerate(atts):
+        entropy = Categorical(probs=layer).entropy()
+        entropies[f'layer {i+1}'] = entropy
+    return entropies
+
+def extract_scores(output_dictionaries):
+    score_dictionary = {}
+    for dictionary in output_dictionaries:
+        scores = dictionary['scores'][0].cpu().numpy()
+        phrase = dictionary['phrase'][0]
+        if phrase not in score_dictionary:
+            score_dictionary[phrase] = {'matching scores': [], 'no match scores': []}
+        if dictionary['label'] == 0:
+            score_dictionary[phrase]['matching scores'].append(scores[0])
+        else:
+            score_dictionary[phrase]['no match scores'].append(scores[1])        
+
+    return score_dictionary
+
+def run_t_test(scores_dictionary):
+    results = {}
+    for phrase, scores in scores_dictionary.items():
+        matching_scores = scores['matching scores']
+        no_match_scores = scores['no match scores']
+        if len(matching_scores) == len(no_match_scores) and len(matching_scores) > 1:
+            stats = ttest_rel(matching_scores, no_match_scores)
+            t_statistic = stats.statistic
+            p_value = stats.pvalue
+            results[phrase] = {'t_statistic': t_statistic, 'p_value': p_value}
+
+    return results 
